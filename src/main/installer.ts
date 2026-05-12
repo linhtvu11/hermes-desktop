@@ -1,6 +1,6 @@
 import { spawn, execSync, execFile } from "child_process";
 import { existsSync, readFileSync, readdirSync } from "fs";
-import { join } from "path";
+import { join, delimiter } from "path";
 import { homedir } from "os";
 import type { BrowserWindow } from "electron";
 import { getModelConfig, getConnectionConfig } from "./config";
@@ -11,7 +11,9 @@ export const HERMES_HOME =
   process.env.HERMES_HOME?.trim() || join(homedir(), ".hermes");
 export const HERMES_REPO = join(HERMES_HOME, "hermes-agent");
 export const HERMES_VENV = join(HERMES_REPO, "venv");
-export const HERMES_PYTHON = join(HERMES_VENV, "bin", "python");
+export const HERMES_PYTHON = process.platform === "win32"
+  ? join(HERMES_VENV, "Scripts", "python.exe")
+  : join(HERMES_VENV, "bin", "python");
 export const HERMES_SCRIPT = join(HERMES_REPO, "hermes");
 export const HERMES_ENV_FILE = join(HERMES_HOME, ".env");
 export const HERMES_CONFIG_FILE = join(HERMES_HOME, "config.yaml");
@@ -48,7 +50,7 @@ export function getEnhancedPath(): string {
     "/opt/homebrew/bin",
     "/opt/homebrew/sbin",
   ];
-  return [...extra, process.env.PATH || ""].join(":");
+  return [...extra, process.env.PATH || ""].join(delimiter);
 }
 
 /** Resolve the active nvm node version's bin directory. */
@@ -504,24 +506,40 @@ export async function runInstall(
       // Source the user's shell profile to get the same PATH as their terminal,
       // then run the official install script. Electron apps launched from Finder
       // don't inherit the terminal environment.
-      const shellProfile = getShellProfile(home);
-      const installCmd = [
-        shellProfile ? `source "${shellProfile}" 2>/dev/null;` : "",
-        "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup",
-      ].join(" ");
-
       const basePath = getEnhancedPath();
-      const proc = spawn("bash", ["-c", installCmd], {
-        cwd: home,
-        env: {
-          ...process.env,
-          PATH: askpass ? `${askpass.pathPrepend}:${basePath}` : basePath,
-          HOME: home,
-          TERM: "dumb",
-          ...(askpass?.env ?? {}),
-        },
-        stdio: ["ignore", "pipe", "pipe"],
-      });
+      let proc;
+
+      if (process.platform === "win32") {
+        const installCmd = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $script = [scriptblock]::Create((Invoke-RestMethod https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1)); &$script -SkipSetup";
+        proc = spawn("powershell", ["-ExecutionPolicy", "Bypass", "-Command", installCmd], {
+          cwd: home,
+          env: {
+            ...process.env,
+            PATH: basePath,
+            HOME: home,
+            TERM: "dumb",
+          },
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+      } else {
+        const shellProfile = getShellProfile(home);
+        const installCmd = [
+          shellProfile ? `source "${shellProfile}" 2>/dev/null;` : "",
+          "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup",
+        ].join(" ");
+
+        proc = spawn("bash", ["-c", installCmd], {
+          cwd: home,
+          env: {
+            ...process.env,
+            PATH: askpass ? `${askpass.pathPrepend}:${basePath}` : basePath,
+            HOME: home,
+            TERM: "dumb",
+            ...(askpass?.env ?? {}),
+          },
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+      }
 
       proc.stdout?.on("data", (data: Buffer) => {
         emit(stripAnsi(data.toString()));
