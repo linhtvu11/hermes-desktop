@@ -273,7 +273,8 @@ function findNpm(): string {
 
   // Fallback: which/where (blocks main thread — only runs once)
   try {
-    const npmPath = execSync("which npm 2>/dev/null || where npm 2>/dev/null", {
+    const cmd = process.platform === "win32" ? "where npm" : "which npm 2>/dev/null";
+    const npmPath = execSync(cmd, {
       env: { ...process.env, PATH: getEnhancedPath() },
       timeout: 5000,
     })
@@ -288,8 +289,8 @@ function findNpm(): string {
     /* fall through */
   }
 
-  _cachedNpmPath = "npm";
-  return "npm";
+  _cachedNpmPath = process.platform === "win32" ? "npm.cmd" : "npm";
+  return _cachedNpmPath;
 }
 
 export async function setupClaw3d(
@@ -388,6 +389,7 @@ export async function setupClaw3d(
       cwd: HERMES_OFFICE_DIR,
       env,
       stdio: ["ignore", "pipe", "pipe"],
+      shell: true,
     });
 
     proc.stdout?.on("data", (data: Buffer) => {
@@ -459,6 +461,7 @@ export function startDevServer(): boolean {
     },
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
+    shell: true,
   });
 
   devServerProcess = proc;
@@ -533,6 +536,7 @@ export function startAdapter(): boolean {
     },
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
+    shell: true,
   });
 
   adapterProcess = proc;
